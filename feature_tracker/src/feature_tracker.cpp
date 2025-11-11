@@ -1,7 +1,12 @@
 #include "feature_tracker.h"
 
+// FeatureTracker::n_id 表示该成员变量属于 FeatureTracker 类，而不是类的某个实例。
+// 静态成员变量在所有对象之间共享，即所有 FeatureTracker 类的实例都将访问同一个 n_id 变量。
+// n_id 可能用于标识特征点的唯一 ID，例如每添加一个新的特征点，就递增 n_id，为每个特征点分配一个唯一的标识符。
 int FeatureTracker::n_id = 0;
 
+// 用于检查一个点是否位于图像的有效区域内（排除边界）。
+// 函数通过比较点的坐标与图像的宽高以及边界大小（BORDER_SIZE）来判断点是否在有效区域内。
 bool inBorder(const cv::Point2f &pt)
 {
     const int BORDER_SIZE = 1;
@@ -10,6 +15,7 @@ bool inBorder(const cv::Point2f &pt)
     return BORDER_SIZE <= img_x && img_x < COL - BORDER_SIZE && BORDER_SIZE <= img_y && img_y < ROW - BORDER_SIZE;
 }
 
+// 根据 status 向量筛选 v 向量中的元素。对于 status[i] 为 1 的元素，将对应的 v[i] 保留在 v 向量中，且保持在通过j维持的队列底端。
 void reduceVector(vector<cv::Point2f> &v, vector<uchar> status)
 {
     int j = 0;
@@ -18,7 +24,7 @@ void reduceVector(vector<cv::Point2f> &v, vector<uchar> status)
             v[j++] = v[i];
     v.resize(j);
 }
-
+// 重载出变量类型为iint时的实现
 void reduceVector(vector<int> &v, vector<uchar> status)
 {
     int j = 0;
@@ -28,23 +34,29 @@ void reduceVector(vector<int> &v, vector<uchar> status)
     v.resize(j);
 }
 
-
+// 构造函数定义，这个写法等同于在类的内部写，下同
 FeatureTracker::FeatureTracker()
 {
 }
 
 void FeatureTracker::setMask()
 {
-    if(FISHEYE)
+    // 如果使用鱼眼相机，mask 会被设置为 fisheye_mask 的深拷贝。
+	// fisheye_mask 是一个预定义的掩码，通常是根据鱼眼镜头的畸变特性预先设定的。
+	// 如果不使用鱼眼相机，mask 被初始化为一个大小为 ROW x COL 的白色图像（所有像素值为 255），表示所有区域都可以处理。
+	if(FISHEYE)
         mask = fisheye_mask.clone();
     else
         mask = cv::Mat(ROW, COL, CV_8UC1, cv::Scalar(255));
     
 
     // prefer to keep features that are tracked for long time
+	// 向量用于存储所有的特征点信息，包含：int跟踪计数器track_cnt[i]、cv::Point2f特征点的坐标、int特征点的唯一 ID（ids[i] （通过嵌套的pair类型实现）
     vector<pair<int, pair<cv::Point2f, int>>> cnt_pts_id;
 
-    for (unsigned int i = 0; i < forw_pts.size(); i++)
+    // 遍历 forw_pts 向量（将来一帧的特征点组）中的每个特征点，
+    // 并将每个特征点的信息（包括跟踪计数、特征点坐标和 ID）插入到 cnt_pts_id 向量中。
+	for (unsigned int i = 0; i < forw_pts.size(); i++)
         cnt_pts_id.push_back(make_pair(track_cnt[i], make_pair(forw_pts[i], ids[i])));
 
     sort(cnt_pts_id.begin(), cnt_pts_id.end(), [](const pair<int, pair<cv::Point2f, int>> &a, const pair<int, pair<cv::Point2f, int>> &b)
@@ -52,6 +64,7 @@ void FeatureTracker::setMask()
             return a.first > b.first;
          });
 
+    // 在筛选和排序之后，清空特征点信息
     forw_pts.clear();
     ids.clear();
     track_cnt.clear();
