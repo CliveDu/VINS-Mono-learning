@@ -39,8 +39,16 @@ FeatureTracker::FeatureTracker()
 {
 }
 
+// 这个函数总共总了以下几件事
+// 1 填充掩码 mask 为白板（便于后续往上记录特征点）
+// 2 定义三复合类型向量容器 cnt_pts_id ，把 将来点的 跟踪计数 track_cnt 、坐标 forw_pts 、身份标识 ids 组织到其中
+// 3 对则个得到的容器按照 跟踪计数 track_cnt 降序排列
+// 4 由于三小只的原始数据已经组织到了 cnt_pts_id 之中，可以清理它们的空间
+// 5 把排序后的 cnt_pts_id 中的对应数据又重新分回三小只中，顺便借助这个迭代过程往 mask 上打上特征点记录
 void FeatureTracker::setMask()
 {
+    // 1
+    // 这里是在头文件的类中定义好了的Mat变量
     // 如果使用鱼眼相机，mask 会被设置为 fisheye_mask 的深拷贝。
 	// fisheye_mask 是一个预定义的掩码，通常是根据鱼眼镜头的畸变特性预先设定的。
 	// 如果不使用鱼眼相机，mask 被初始化为一个大小为 ROW x COL 的白色图像（所有像素值为 255），表示所有区域都可以处理。
@@ -49,11 +57,12 @@ void FeatureTracker::setMask()
     else
         mask = cv::Mat(ROW, COL, CV_8UC1, cv::Scalar(255));
     
-
+    // 2
     // prefer to keep features that are tracked for long time
 	// 向量用于存储所有的特征点信息，包含：int跟踪计数器track_cnt[i]、cv::Point2f特征点的坐标、int特征点的唯一 ID（ids[i] （通过嵌套的pair类型实现）
     vector<pair<int, pair<cv::Point2f, int>>> cnt_pts_id;
 
+    // 3
     // 遍历 forw_pts 向量（将来一帧的特征点组）中的每个特征点，
     // 并将每个特征点的信息（包括跟踪计数、特征点坐标和 ID）插入到 cnt_pts_id 向量中。
 	for (unsigned int i = 0; i < forw_pts.size(); i++)
@@ -61,14 +70,22 @@ void FeatureTracker::setMask()
 
     sort(cnt_pts_id.begin(), cnt_pts_id.end(), [](const pair<int, pair<cv::Point2f, int>> &a, const pair<int, pair<cv::Point2f, int>> &b)
          {
+            // 表示我需要 第一个元素 a 大于 第二个元素 b
+            // 这样此匿名函数会返回 Ture 告诉 sort 无需交换，如果返回为 False 则需要交换
+            // sort本身不具备排序相关逻辑，都是依靠后面的lambda函数返回布尔值来提醒它：
+            // 是否对来自同一容器的第一和第二个输入参数之间的迭代选取的相邻元素
             return a.first > b.first;
          });
 
+    // 4
     // 在筛选和排序之后，清空特征点信息
     forw_pts.clear();
     ids.clear();
     track_cnt.clear();
-
+    
+    // 5
+    // 掩码在函数开头被定义为是一张和输入图像大小完全相同的全白（255）的图，
+    // 但是循环过程中会不断往上用黑点（0）记录已经打上的特征点，
     for (auto &it : cnt_pts_id)
     {
         if (mask.at<uchar>(it.second.first) == 255)
@@ -79,8 +96,10 @@ void FeatureTracker::setMask()
             cv::circle(mask, it.second.first, MIN_DIST, 0, -1);
         }
     }
-}
+} 
 
+// n_pts 中预计会存储新检出的特征点，将其放入三小只，
+// 其对应的 ids 初始化为末位）（-1）， track_cnt 初始化为 1
 void FeatureTracker::addPoints()
 {
     for (auto &p : n_pts)
@@ -91,13 +110,18 @@ void FeatureTracker::addPoints()
     }
 }
 
+// 传入图像 _img 和 时间戳 _cur_time 
+// 1
+
 void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
 {
     cv::Mat img;
+    // 通过实例化类 TicToc 启动一个计时器 t_r 
     TicToc t_r;
+    // 将传入的时间戳  赋予在 FeatureTracker 中定义好的 cur_time 
     cur_time = _cur_time;
 
-    if (EQUALIZE)
+    if (EQUALIZE) 
     {
         cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
         TicToc t_c;
@@ -181,10 +205,13 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
 
 void FeatureTracker::rejectWithF()
 {
+    // 计算基础矩阵 FM 需要至少 8 对点来进行最小二乘法估计
     if (forw_pts.size() >= 8)
     {
         ROS_DEBUG("FM ransac begins");
         TicToc t_f;
+        // 存储当前帧 un_cur_pts 和前一帧 un_forw_pts 的去畸变后的特征点
+        // 初始化为与原容器 cur_pts forw_pts 相同的大小
         vector<cv::Point2f> un_cur_pts(cur_pts.size()), un_forw_pts(forw_pts.size());
         for (unsigned int i = 0; i < cur_pts.size(); i++)
         {
